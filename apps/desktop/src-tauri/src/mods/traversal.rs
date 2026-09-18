@@ -28,14 +28,16 @@ pub struct ModXml {
     #[serde(rename = "@id")]
     pub id: Option<String>,
     #[serde(rename = "Properties")]
+    #[serde(default)]
     pub properties: Properties,
 }
 
 // Using this temporarly until we get the `modinfo-parser` lib integrated
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Properties {
     pub civ_mods_internal_version_id: Option<String>,
+    pub name: Option<String>,
 }
 
 // Make sure this is aligned with the ignore list in the backend in Node.js
@@ -111,7 +113,8 @@ fn extract_mod_xml(modinfo_path: &str) -> Option<ModXml> {
     }
 }
 
-fn sanitize_xml(reader: impl Read, writer: impl Write) -> quick_xml::Result<()> {
+// public so `art_dlc` can reuse it for modinfo.
+pub(crate) fn sanitize_xml(reader: impl Read, writer: impl Write) -> quick_xml::Result<()> {
     use quick_xml::{
         errors::{Error, IllFormedError},
         events::{BytesEnd, Event},

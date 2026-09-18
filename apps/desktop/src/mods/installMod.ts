@@ -3,6 +3,7 @@ import type {
   ModVersionsRecord,
   ModVersionsResponse,
 } from '@civmods/parser';
+import { notifications } from '@mantine/notifications';
 import { fetch } from '@tauri-apps/plugin-http';
 import * as fs from '@tauri-apps/plugin-fs';
 // import { parseContentDisposition } from '../../../../packages/parser/src/headers';
@@ -11,6 +12,7 @@ import * as path from '@tauri-apps/api/path';
 import { ModData, ModInfo } from '../home/IModInfo';
 import { useAppStore } from '../store/store';
 import { getModFolderPath } from './commands/getModFolderPath';
+import { getActiveDlcFolder } from './getDlcFolder';
 import { getActiveModsFolder } from './getModsFolder';
 import dayjs from 'dayjs';
 import {
@@ -250,6 +252,12 @@ async function runLowLevelInstallMod(
     `civmods-${version.modinfo_id ?? version.mod_id}-${version.cf_id}`
   );
 
+  // art files mods need to install into DLC folder.
+  const dlcFolder = await getActiveDlcFolder().catch((error) => {
+    console.warn('Failed to resolve the game DLC folder:', error);
+    return null;
+  });
+
   try {
     await fs.writeFile(tempArchivePath, new Uint8Array(buffer));
 
@@ -257,6 +265,7 @@ async function runLowLevelInstallMod(
     const result = await invokeExtractModArchive({
       archivePath: tempArchivePath,
       extractPath,
+      dlcFolder,
       properties: {
         target_modinfo_id: version.modinfo_id,
         target_modinfo_path: version.modinfo_path,
@@ -269,6 +278,24 @@ async function runLowLevelInstallMod(
     });
 
     console.log('Mod installed!', result);
+
+    if (result?.art_dlc) {
+      console.log(
+        `Installed art files to DLC folder "${result.art_dlc.folder_name}"`,
+        result.art_dlc
+      );
+    }
+
+    // If mod art installation fails, warn user.
+    if (result?.art_dlc_error) {
+      console.error('Failed to install art files:', result.art_dlc_error);
+      notifications.show({
+        color: 'yellow',
+        autoClose: false,
+        title: `${mod.name}: art files not installed`,
+        message: result.art_dlc_error,
+      });
+    }
   } catch (error) {
     console.error('Failed to install mod:', error);
     if (await fs.exists(extractPath)) {

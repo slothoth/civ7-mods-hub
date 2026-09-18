@@ -21,8 +21,12 @@ import {
   IconSettings,
 } from '@tabler/icons-react';
 import * as React from 'react';
+import { notifications } from '@mantine/notifications';
+import { open } from '@tauri-apps/plugin-dialog';
 import { useModsContext } from '../mods/ModsContext';
-import { useEffect, useMemo, useState } from 'react';
+import { getActiveDlcFolder, resolveDlcFolder } from '../mods/getDlcFolder';
+import { useAppStore } from '../store/store';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { appDataDir, appLogDir, resolve } from '@tauri-apps/api/path';
 import { getVersion } from '@tauri-apps/api/app';
 import styles from './SettingsDrawer.module.css';
@@ -48,12 +52,16 @@ export function SettingsDrawer(props: ISettingsDrawerProps) {
   const [opened, handlers] = useDisclosure();
   const { chooseModFolder, getModsFolder, mods } = useModsContext();
 
+  const dlcFolder = useAppStore((state) => state.dlcFolder);
+
   const [displayedFolders, setDisplayedFolders] = useState<{
     mods: DisplayedFolder | null;
     logs: DisplayedFolder | null;
+    dlc: DisplayedFolder | null;
   }>({
     mods: null,
     logs: null,
+    dlc: null,
   });
   useEffect(() => {
     async function updateFolders() {
@@ -61,6 +69,7 @@ export function SettingsDrawer(props: ISettingsDrawerProps) {
       const logsFolder = modsFolder
         ? await resolve(modsFolder, '..', 'Logs')
         : '';
+      const gameDlcFolder = await getActiveDlcFolder();
 
       setDisplayedFolders({
         mods: {
@@ -71,13 +80,52 @@ export function SettingsDrawer(props: ISettingsDrawerProps) {
           full: logsFolder,
           redacted: await redactPath(logsFolder),
         },
+        dlc: {
+          full: gameDlcFolder,
+          redacted: await redactPath(gameDlcFolder),
+        },
       });
     }
 
     updateFolders().catch((err) => {
       console.error('Failed to update folders:', err);
     });
-  }, [open, getModsFolder, mods]);
+  }, [open, getModsFolder, mods, dlcFolder]);
+
+  // If can't auto detect game install if its in a odd location
+  const chooseDlcFolder = useCallback(async () => {
+    try {
+      const selectedFolder = await open({
+        directory: true,
+        multiple: false,
+        defaultPath: (await getActiveDlcFolder()) ?? undefined,
+        title: 'Select the Civilization VII installation folder',
+      });
+
+      if (!selectedFolder) return;
+
+      const resolved = await resolveDlcFolder(selectedFolder);
+      if (!resolved) {
+        notifications.show({
+          color: 'red',
+          title: 'Not a Civilization VII installation folder',
+          message:
+            "The selected folder doesn't contain a DLC folder. Select the game " +
+            'installation folder (the one containing Base, DLC and Mods).',
+        });
+        return;
+      }
+
+      useAppStore.getState().setDlcFolder(resolved);
+    } catch (error) {
+      console.error('Error selecting DLC folder:', error);
+      notifications.show({
+        color: 'red',
+        title: 'Failed to select the game folder',
+        message: String(error),
+      });
+    }
+  }, []);
 
   const [version, setVersion] = useState<string | null>(null);
   useEffect(() => {
@@ -126,6 +174,39 @@ export function SettingsDrawer(props: ISettingsDrawerProps) {
           Current mods folder:
           <br />
           <Code>{displayedFolders.mods?.redacted}</Code>{' '}
+        </Text>
+
+        <Space h="md" />
+        <Group w="100%" gap={'xs'}>
+          <Button
+            style={{ flex: '1 1 auto' }}
+            leftSection={<IconFolder size={16} />}
+            onClick={chooseDlcFolder}
+            color="blue"
+          >
+            Choose game folder
+          </Button>
+          <Button
+            leftSection={<IconExternalLink size={16} />}
+            color="blue"
+            variant="light"
+            disabled={!displayedFolders.dlc?.full}
+            onClick={() => openPath(displayedFolders.dlc?.full || '')}
+          >
+            Open
+          </Button>
+        </Group>
+        <Text c="dimmed" size="sm" mt="xs">
+          Mods with custom art are installed in the game's DLC folder:
+          <br />
+          {displayedFolders.dlc?.redacted ? (
+            <Code>{displayedFolders.dlc.redacted}</Code>
+          ) : (
+            <Text component="span" c="orange" size="sm">
+              Not found. Choose the Civilization VII installation folder to
+              enable art mods.
+            </Text>
+          )}
         </Text>
 
         <Title order={3} mt="lg">

@@ -5,24 +5,36 @@ use std::io::{self, BufReader};
 use std::path::{Path, PathBuf};
 use unrar::Archive;
 use zip::ZipArchive;
+use serde::Serialize;
 
 use super::patch_modinfo::{patch_modinfo_xml, CivModsProperties};
 use super::traversal::find_modinfo_file;
+use super::art_dlc::{install_art_dlc, ArtDlcInstallInfo};
+
+#[derive(Debug, Default, Serialize)]
+pub struct ExtractModArchiveResult {
+    pub art_dlc: Option<ArtDlcInstallInfo>,  // when successful art install
+    pub art_dlc_error: Option<String>,       // when art files were present but not installed
+}
 
 #[tauri::command]
 pub async fn extract_mod_archive(
     archive_path: &str,
     extract_path: &str,
     properties: CivModsProperties,
-) -> Result<(), String> {
-    let info = extract_archive(&archive_path, &extract_path, &properties)
+    dlc_folder: Option<String>,
+) -> Result<ExtractModArchiveResult, String> {
+    let info = extract_archive(&archive_path, &extract_path, &properties, dlc_folder.as_deref())
         .map_err(|e| format!("Failed to extract archive: {}", e))?;
 
     if let Err(e) = patch_modinfo_xml(info.modinfo_path.clone(), properties) {
         log::error!("Failed to patch modinfo '{}': {}", info.modinfo_path, e);
     }
 
-    Ok(())
+    Ok(ExtractModArchiveResult {
+        art_dlc: info.art_dlc,
+        art_dlc_error: info.art_dlc_error,
+    })
 }
 
 /// Extract ZIP files using `zip 2.x`
@@ -107,6 +119,8 @@ fn extract_tgz(archive_path: &str, extract_to: &str) -> io::Result<()> {
 pub struct ExtractArchiveInfo {
     modinfo_path: String,
     modinfo_dir: String,
+    art_dlc: Option<ArtDlcInstallInfo>,
+    art_dlc_error: Option<String>,
 }
 
 /// Extracts any archive format based on file extension
@@ -114,6 +128,7 @@ pub fn extract_archive(
     archive_path: &str,
     extract_to: &str,
     properties: &CivModsProperties,
+    dlc_folder: Option<&str>,
 ) -> Result<ExtractArchiveInfo, String> {
     let ext = Path::new(archive_path)
         .extension()
@@ -143,12 +158,46 @@ pub fn extract_archive(
         modinfo_search_dir = modinfo_search_dir.join(target_modinfo_path);
     }
 
-    let (modinfo_path, _) = find_modinfo_file(modinfo_search_dir.as_path());
+    let (modinfo_path, modinfo_xml) = find_modinfo_file(modinfo_search_dir.as_path());
     let modinfo_dir = Path::new(modinfo_path.as_deref().unwrap())
         .parent()
         .ok_or("Modinfo file not found")?;
 
     println!("Modinfo directory: {:?}", modinfo_dir);
+
+    // Install any art assets.
+    let mut art_dlc = None;
+    let mut art_dlc_error = None;
+    if let Some(dlc_folder) = dlc_folder {
+        let fallback_name = modinfo_xml
+            .as_ref()
+            .and_then(|xml| xml.properties.name.clone())
+            .or_else(|| modinfo_xml.as_ref().and_then(|xml| xml.id.clone()))
+            .unwrap_or_else(|| {
+                Path::new(extract_to)
+                    .file_name()
+                    .map(|name| name.to_string_lossy().to_string())
+                    .unwrap_or_default()
+            });
+
+        match install_art_dlc(
+            modinfo_dir,
+            Path::new(&temp_target),
+            Path::new(modinfo_path.as_deref().unwrap()),
+            &fallback_name,
+            Path::new(dlc_folder),
+        ) {
+            Ok(Some(info)) => {
+                log::info!("art-dlc: installed art files to '{}'", info.installed_path);
+                art_dlc = Some(info);
+            }
+            Ok(None) => {}
+            Err(e) => {
+                log::error!("art-dlc: failed to install art files: {}", e);
+                art_dlc_error = Some(e);
+            }
+        }
+    }
 
     recursively_grant_write_permissions(modinfo_dir)
         .map_err(|e| format!("Failed to grant write permissions: {}", e))?;
@@ -173,6 +222,8 @@ pub fn extract_archive(
     Ok(ExtractArchiveInfo {
         modinfo_path: updated_modinfo_path.ok_or("Modinfo file not found")?,
         modinfo_dir: extract_to.to_string(),
+        art_dlc,
+        art_dlc_error,
     })
 }
 

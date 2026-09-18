@@ -12,8 +12,10 @@ use tauri_plugin_fs::FsExt; // Important: new way to access fs plugin
 
 mod logger;
 mod mods;
+use crate::mods::get_civ_dlc_folder;
 use crate::mods::get_civ_mods_folder;
 use mods::profiles::{copy_mods_to_profile, restore_mods_from_profile};
+use std::path::Path;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -34,6 +36,19 @@ async fn get_mods_folder(app_handle: tauri::AppHandle) -> Result<Option<String>,
     }
 
     Ok(mods_folder.map(|p| p.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+async fn get_dlc_folder() -> Result<Option<String>, String> {
+    let dlc_folder = get_civ_dlc_folder::get_civ7_dlc_folder();
+    Ok(dlc_folder.map(|p| p.to_string_lossy().to_string()))
+}
+
+// is user picked dlc folder valid?
+#[tauri::command]
+async fn resolve_dlc_folder(path: String) -> Result<Option<String>, String> {
+    let resolved = get_civ_dlc_folder::normalize_dlc_folder(Path::new(&path));
+    Ok(resolved.map(|p| p.to_string_lossy().to_string()))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -126,6 +141,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             get_mods_folder,
+            get_dlc_folder,
+            resolve_dlc_folder,
             extract_mod_archive,
             scan_civ_mods,
             patch_modinfo_xml_command,

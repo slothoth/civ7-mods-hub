@@ -29,6 +29,8 @@ const storage: StateStorage = {
 export type AppState = {
   modFolder: string | null;
   setModFolder: (folder: string) => void;
+  dlcFolder: string | null;
+  setDlcFolder: (folder: string | null) => void;
   hydrated: boolean;
   setHydrated: (hydrated: boolean) => void;
 
@@ -54,6 +56,8 @@ export const useAppStore = create<AppState>()(
     (set, get) => ({
       modFolder: null,
       setModFolder: (folder: string) => set({ modFolder: folder }),
+      dlcFolder: null,
+      setDlcFolder: (folder: string | null) => set({ dlcFolder: folder }),
       hydrated: false,
       setHydrated: (hydrated: boolean) => set({ hydrated }),
 
@@ -103,7 +107,7 @@ export const useAppStore = create<AppState>()(
             state.setHydrated(true);
             console.log(
               '[store.onRehydrateStorage] Rehydrated state:',
-              omit(state, ['modFolder'])
+              omit(state, ['modFolder', 'dlcFolder'])
             );
           }
         };

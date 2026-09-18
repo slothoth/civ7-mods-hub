@@ -73,10 +73,23 @@ export async function invokePatchModinfoXml(
   });
 }
 
+export interface ArtDlcInstallInfo {
+  folder_name: string;
+  installed_path: string;
+  dep_files: number;
+  platforms_dirs: number;
+}
+
+export interface ExtractModArchiveResult {
+  art_dlc: ArtDlcInstallInfo | null;  // when successful art install
+  art_dlc_error: string | null; // when art files were present but not installed
+}
+
 export async function invokeExtractModArchive(data: {
   archivePath: string;
   extractPath: string;
   properties: CivModsProperties;
-}): Promise<string> {
-  return await invoke<string>('extract_mod_archive', data);
+  dlcFolder?: string | null;
+}): Promise<ExtractModArchiveResult> {
+  return await invoke<ExtractModArchiveResult>('extract_mod_archive', data);
 }
